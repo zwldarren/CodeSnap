@@ -31,6 +31,9 @@ python_files = "test_*.py"
 python_functions = "test_*"
 addopts = "-v --cov=akshare_one --cov-report=term-missing"
 
+[tool.ruff]
+exclude = [".codesnap"]
+
 [tool.ruff.lint]
 select = [
     # pycodestyle
