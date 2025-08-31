@@ -164,6 +164,33 @@ class StorageManager:
         checkpoints = self.list_checkpoints()
         return [cp for cp in checkpoints if cp.branch_id == branch_id]
 
+    def get_active_branch(self) -> Branch | None:
+        """Get the currently active branch."""
+        active_branch_file = self.base_path / "active_branch"
+        if not active_branch_file.exists():
+            return None
+
+        try:
+            with open(active_branch_file) as f:
+                branch_id = f.read().strip()
+            return self.load_branch(branch_id)
+        except Exception:
+            return None
+
+    def set_active_branch(self, branch_id: str) -> bool:
+        """Set the active branch."""
+        branch = self.load_branch(branch_id)
+        if not branch:
+            return False
+
+        active_branch_file = self.base_path / "active_branch"
+        try:
+            with open(active_branch_file, "w") as f:
+                f.write(branch_id)
+            return True
+        except Exception:
+            return False
+
     # Export operations
     def export_data(
         self,

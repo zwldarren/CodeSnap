@@ -202,21 +202,9 @@ class CheckpointSystem:
     ) -> list[CodeChange]:
         """Compare two checkpoints and return the differences."""
         return self.comparator.compare_checkpoints(
-            checkpoint1_id, checkpoint2_id, use_rich=False
-        )
-
-    def compare_with_current_rich(self, checkpoint_id: str) -> list[CodeChange]:
-        """Compare a checkpoint with the current project state with rich formatting."""
-        return self.comparator.compare_with_current(checkpoint_id, use_rich=True)
-
-    def compare_checkpoints_rich(
-        self, checkpoint1_id: str, checkpoint2_id: str
-    ) -> list[CodeChange]:
-        """Compare two checkpoints and return the differences with rich formatting."""
-        return self.comparator.compare_checkpoints(
             checkpoint1_id, checkpoint2_id, use_rich=True
         )
 
     def compare_with_current(self, checkpoint_id: str) -> list[CodeChange]:
         """Compare a checkpoint with the current project state."""
-        return self.comparator.compare_with_current(checkpoint_id, use_rich=False)
+        return self.comparator.compare_with_current(checkpoint_id, use_rich=True)

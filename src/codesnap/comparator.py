@@ -41,8 +41,20 @@ class CheckpointComparator:
             else None
         )
 
-        if old_content_hash and new_content_hash:
-            if old_content_hash == new_content_hash:
+        return self._compare_content(file_path, old_content, new_content, use_rich)
+
+    def _compare_content(
+        self,
+        file_path: str,
+        old_content: str | None,
+        new_content: str | None,
+        use_rich: bool = False,
+    ) -> CodeChange | None:
+        """Compare two file contents and return the change if any."""
+        # Always compare actual content, not just hashes
+        if old_content is not None and new_content is not None:
+            # File exists in both versions, compare content
+            if old_content == new_content:
                 return None  # No change
             else:
                 # File modified
@@ -51,7 +63,7 @@ class CheckpointComparator:
                     if use_rich
                     else self.diff_generator.generate_diff
                 )
-                diff = diff_func(old_content or "", new_content or "")
+                diff = diff_func(old_content, new_content)
                 return CodeChange(
                     file_path=file_path,
                     change_type="modified",
@@ -59,14 +71,14 @@ class CheckpointComparator:
                     new_content=new_content,
                     diff=diff,
                 )
-        elif old_content_hash and not new_content_hash:
+        elif old_content is not None and new_content is None:
             # File deleted
             diff_func = (
                 self.diff_generator.generate_diff_rich
                 if use_rich
                 else self.diff_generator.generate_diff
             )
-            diff = diff_func(old_content or "", "")
+            diff = diff_func(old_content, "")
             return CodeChange(
                 file_path=file_path,
                 change_type="deleted",
@@ -74,14 +86,14 @@ class CheckpointComparator:
                 new_content=None,
                 diff=diff,
             )
-        elif not old_content_hash and new_content_hash:
+        elif old_content is None and new_content is not None:
             # File added
             diff_func = (
                 self.diff_generator.generate_diff_rich
                 if use_rich
                 else self.diff_generator.generate_diff
             )
-            diff = diff_func("", new_content or "")
+            diff = diff_func("", new_content)
             return CodeChange(
                 file_path=file_path,
                 change_type="added",
@@ -162,20 +174,22 @@ class CheckpointComparator:
                 checkpoint_hash = checkpoint.file_snapshots.get(file_path)
                 current_file = current_files.get(file_path)
 
+                # Load checkpoint content from storage
+                checkpoint_content = (
+                    self.storage.load_file_snapshot(checkpoint_hash)
+                    if checkpoint_hash
+                    else None
+                )
+                # Load current content from filesystem
                 current_content = (
                     self.file_system.read_file_content(current_file)
                     if current_file
                     else None
                 )
-                current_content_hash = (
-                    self.storage._get_file_hash(current_content)
-                    if current_content
-                    else None
-                )
 
                 try:
-                    change = self._compare_files(
-                        file_path, checkpoint_hash, current_content_hash, use_rich
+                    change = self._compare_content(
+                        file_path, checkpoint_content, current_content, use_rich
                     )
                     if change:
                         changes.append(change)

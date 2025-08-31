@@ -192,15 +192,29 @@ def list_cmd(status: str, branches: bool):
                     branch_checkpoints[checkpoint.branch_id] = []
                 branch_checkpoints[checkpoint.branch_id].append(checkpoint)
 
+        # Get active branch, set default if none exists
+        active_branch = storage.get_active_branch()
+        if not active_branch and branches_list:
+            # Set the first branch as active if no active branch is set
+            first_branch = branches_list[0]
+            storage.set_active_branch(first_branch.id)
+            active_branch = first_branch
+        active_branch_id = active_branch.id if active_branch else None
+
         console.print("[bold]Branch Tree View[/bold]")
         console.print("=" * 50)
 
         for branch in branches_list:
-            # Show branch info
+            # Show branch info with active indicator
             branch_color = "green" if branch.status == "active" else "yellow"
+            active_indicator = (
+                " [bold cyan](active)[/bold cyan]"
+                if branch.id == active_branch_id
+                else ""
+            )
             console.print(
                 f"\n[{branch_color}]Branch: {branch.name}[/{branch_color}]"
-                f" (ID: {format_uuid(branch.id)})"
+                f" (ID: {format_uuid(branch.id)}){active_indicator}"
             )
             if branch.description:
                 console.print(f"  Description: {branch.description}")
@@ -216,6 +230,14 @@ def list_cmd(status: str, branches: bool):
                 for i, checkpoint in enumerate(branch_cps):
                     prefix = "├── " if i < len(branch_cps) - 1 else "└── "
                     checkpoint_color = "cyan" if checkpoint.restored_from else "white"
+
+                    # Add current checkpoint indicator only for active branch
+                    current_indicator = ""
+                    if (
+                        branch.id == active_branch_id
+                        and branch.current_checkpoint_id == checkpoint.id
+                    ):
+                        current_indicator = " [bold green](current)[/bold green]"
 
                     if checkpoint.restored_from:
                         restored_from = next(
@@ -235,12 +257,12 @@ def list_cmd(status: str, branches: bool):
                         )
                         console.print(
                             f"  {prefix}[{checkpoint_color}]{checkpoint.name}"
-                            f"[/{checkpoint_color}]{restored_info}"
+                            f"[/{checkpoint_color}]{restored_info}{current_indicator}"
                         )
                     else:
                         console.print(
                             f"  {prefix}[{checkpoint_color}]{checkpoint.name}"
-                            f"[/{checkpoint_color}]"
+                            f"[/{checkpoint_color}]{current_indicator}"
                         )
 
                     console.print(f"      ID: {format_uuid(checkpoint.id)}")
@@ -248,6 +270,20 @@ def list_cmd(status: str, branches: bool):
                         f"      Time: "
                         f"{checkpoint.timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
                     )
+
+                    # Show description if available
+                    if checkpoint.description:
+                        console.print(f"      Description: {checkpoint.description}")
+
+                    # Show prompt content if available
+                    if checkpoint.prompt and checkpoint.prompt.content:
+                        prompt_preview = (
+                            checkpoint.prompt.content[:50] + "..."
+                            if len(checkpoint.prompt.content) > 50
+                            else checkpoint.prompt.content
+                        )
+                        console.print(f"      Prompt: {prompt_preview}")
+
                     if checkpoint.tags:
                         console.print(f"      Tags: {', '.join(checkpoint.tags)}")
             else:
@@ -317,7 +353,7 @@ def diff(checkpoint1_id: str | None, checkpoint2_id: str | None, current: bool):
         if not resolved_id:
             return
 
-        changes = checkpoint_system.compare_with_current_rich(resolved_id)
+        changes = checkpoint_system.compare_with_current(resolved_id)
 
         if not changes:
             console.print(
