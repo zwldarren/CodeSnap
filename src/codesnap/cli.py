@@ -65,68 +65,83 @@ console = Console()
 @click.group()
 @click.version_option()
 def main():
-    """CodeSnap - AI coding process recording and log generation system.
-
-    Simple workflow:
-      codesnap start "your prompt here"    # Start AI coding session
-      # AI modifies code based on prompt
-      codesnap start "next prompt"         # Start next session
-      codesnap list                        # View all sessions
-      codesnap diff 1 2                    # Compare sessions
-    """
+    """CodeSnap - AI coding process recording and log generation system."""
     pass
 
 
 @main.command()
-@click.argument("prompt", type=str)
-@click.option("--tag", "tags", multiple=True, help="Tags to associate with this prompt")
+@click.option("--tag", "tags", multiple=True, help="Tags to associate with prompts")
 @click.option(
-    "--description", "-d", type=str, default="", help="Description for the checkpoint"
+    "--description", "-d", type=str, default="", help="Description for checkpoints"
 )
-def start(
-    prompt: str,
-    tags: list[str],
-    description: str,
-):
-    """Start AI coding session with a prompt and create checkpoint."""
-    # Initialize components
+def start(tags: list[str], description: str):
+    """Start AI coding session with interactive prompt input."""
     storage = StorageManager()
     checkpoint_system = CheckpointSystem(storage)
 
-    # Check if project is initialized (has existing checkpoints)
+    console.print("[bold green]CodeSnap Interactive Mode[/bold green]")
+
+    # Check if there are existing checkpoints
     existing_checkpoints = storage.list_checkpoints()
-
-    # Create the prompt
-    prompt_obj = Prompt(
-        content=prompt,
-        tags=list(tags),
-    )
-
     if not existing_checkpoints:
-        console.print(
-            "[yellow]No project found. Creating initial checkpoint...[/yellow]"
-        )
-        # Create initial checkpoint with the user's prompt
-        checkpoint = checkpoint_system.create_checkpoint(
-            description=description or "",
-            tags=list(tags),
-            prompt=prompt_obj,
+        console.print("No existing checkpoints found. Creating initial checkpoint...")
+        # Create first checkpoint immediately when starting (only for new projects)
+        initial_checkpoint = checkpoint_system.create_initial_checkpoint(
+            description="Initial checkpoint before any changes"
         )
         console.print(
-            f"[green]Initial checkpoint created: {format_id(checkpoint.id)}[/green]"
+            f"[green]Initial checkpoint created: {format_id(initial_checkpoint.id)}[/green]"  # noqa: E501
         )
     else:
-        # Create the checkpoint with the prompt
-        checkpoint = checkpoint_system.create_checkpoint(
-            description=description or "",
-            tags=list(tags),
-            prompt=prompt_obj,
-        )
+        console.print(f"Found {len(existing_checkpoints)} existing checkpoint(s).")
 
-    console.print("[green]AI coding session started![/green]")
-    console.print(f"Prompt: {prompt}")
-    console.print(f"Checkpoint ID: {format_id(checkpoint.id)}")
-    console.print("[blue]Now you can make your code changes...[/blue]")
+    console.print("Enter prompts and press Enter to create checkpoints.")
+    console.print("Press Ctrl+C or type 'exit' to quit.\n")
+
+    while True:
+        try:
+            # Get prompt from user
+            prompt_text = click.prompt("Enter prompt")
+
+            if prompt_text.lower() in ["exit", "quit", "q"]:
+                console.print("[yellow]Exiting interactive mode...[/yellow]")
+                break
+
+            if not prompt_text.strip():
+                console.print("[yellow]Prompt cannot be empty. Try again.[/yellow]")
+                continue
+
+            # Create prompt object
+            prompt_obj = Prompt(
+                content=prompt_text,
+                tags=list(tags),
+            )
+
+            console.print(f"Prompt: {prompt_text}")
+            console.print(
+                "[blue]Make your code changes, then press Enter to create checkpoint...[/blue]"  # noqa: E501
+            )
+
+            # Wait for user to press Enter after making changes
+            input()
+
+            # Create second checkpoint AFTER user has made changes
+            checkpoint = checkpoint_system.create_checkpoint(
+                description=description or "",
+                tags=list(tags),
+                prompt=prompt_obj,
+            )
+
+            console.print(
+                f"[green]Checkpoint created: {format_id(checkpoint.id)}[/green]"
+            )
+
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Exiting interactive mode...[/yellow]")
+            break
+        except Exception as e:
+            console.print(f"[red]Error: {str(e)}[/red]")
+            continue
 
 
 # Prompts command removed - prompts are now embedded in checkpoints
@@ -263,13 +278,13 @@ def diff(checkpoint1_id: str | None, checkpoint2_id: str | None, current: bool):
     default=ExportFormat.MARKDOWN.value,
     help="Export format (default: markdown)",
 )
-def export(output_path: str, format_str: str):
+def export(output_path: str, format: str):
     """Export data to a file."""
     storage = StorageManager()
     checkpoint_system = CheckpointSystem(storage)
 
     output_file = Path(output_path)
-    export_format = ExportFormat(format_str)
+    export_format = ExportFormat(format)
 
     try:
         storage.export_data(output_file, export_format, checkpoint_system)

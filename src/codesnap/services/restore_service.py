@@ -1,10 +1,7 @@
-import logging
 from pathlib import Path
 
 from ..storage import StorageManager
 from .checkpoint_service import CheckpointService
-
-logger = logging.getLogger(__name__)
 
 
 class RestoreService:
@@ -39,13 +36,7 @@ class RestoreService:
             checkpoint_path = self.storage.checkpoints_dir / f"{cp.id}.json"
             if checkpoint_path.exists():
                 checkpoint_path.unlink()
-                logger.info(
-                    f"Deleted checkpoint {cp.id} created after the restored one."
-                )
 
-        # Get current files in the project (to identify files to delete)
-        # Use the existing file service from checkpoint service to ensure
-        # consistent ignore patterns
         current_files = self.checkpoint_service.file_service.get_project_files()
 
         # Convert to relative paths for comparison
@@ -63,11 +54,7 @@ class RestoreService:
         for file_path_str in files_to_delete:
             file_path = restore_path / file_path_str
             if file_path.exists():
-                try:
-                    file_path.unlink()
-                    logger.info(f"Deleted file not in checkpoint: {file_path}")
-                except Exception as e:
-                    logger.error(f"Failed to delete file {file_path}: {e}")
+                file_path.unlink()
 
         # Restore each file from checkpoint
         for file_path_str, content_hash in checkpoint_to_restore.file_snapshots.items():
@@ -81,6 +68,5 @@ class RestoreService:
             if content is not None:
                 with open(file_path, "w", encoding="utf-8") as f:
                     f.write(content)
-                logger.debug(f"Restored file: {file_path}")
 
         return True

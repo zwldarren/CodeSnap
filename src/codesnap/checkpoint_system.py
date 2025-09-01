@@ -1,12 +1,9 @@
-import logging
 from pathlib import Path
 
 from .config import Config
 from .models import Checkpoint, CodeChange, Prompt
 from .services import ServiceFactory
 from .storage import StorageManager
-
-logger = logging.getLogger(__name__)
 
 
 class CheckpointSystem:
