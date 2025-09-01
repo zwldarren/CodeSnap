@@ -19,14 +19,19 @@ class StorageManager:
         self.base_path.mkdir(exist_ok=True)
 
         # Create directories for different data types
-        self.checkpoints_dir = self.base_path / "checkpoints"
+        self._checkpoints_dir = self.base_path / "checkpoints"
         self.files_dir = self.base_path / "files"
 
         for directory in [
-            self.checkpoints_dir,
+            self._checkpoints_dir,
             self.files_dir,
         ]:
             directory.mkdir(exist_ok=True)
+
+    @property
+    def checkpoints_dir(self) -> Path:
+        """Get the checkpoints directory."""
+        return self._checkpoints_dir
 
     def _get_file_hash(self, content: str) -> str:
         """Generate a hash for file content."""
@@ -47,12 +52,12 @@ class StorageManager:
     # Checkpoint operations
     def save_checkpoint(self, checkpoint: Checkpoint) -> None:
         """Save a checkpoint to storage."""
-        checkpoint_path = self.checkpoints_dir / f"{checkpoint.id}.json"
+        checkpoint_path = self._checkpoints_dir / f"{checkpoint.id}.json"
         self._save_json(checkpoint_path, checkpoint.model_dump())
 
     def load_checkpoint(self, checkpoint_id: int) -> Checkpoint | None:
         """Load a checkpoint from storage."""
-        checkpoint_path = self.checkpoints_dir / f"{checkpoint_id}.json"
+        checkpoint_path = self._checkpoints_dir / f"{checkpoint_id}.json"
         if not checkpoint_path.exists():
             return None
 
@@ -62,7 +67,7 @@ class StorageManager:
     def list_checkpoints(self) -> list[Checkpoint]:
         """List all checkpoints."""
         checkpoints = []
-        for checkpoint_file in self.checkpoints_dir.glob("*.json"):
+        for checkpoint_file in self._checkpoints_dir.glob("*.json"):
             data = self._load_json(checkpoint_file)
             checkpoint = Checkpoint(**data)
             checkpoints.append(checkpoint)
@@ -71,7 +76,7 @@ class StorageManager:
     def get_next_checkpoint_id(self) -> int:
         """Get the next available checkpoint ID."""
         existing_ids = []
-        for checkpoint_file in self.checkpoints_dir.glob("*.json"):
+        for checkpoint_file in self._checkpoints_dir.glob("*.json"):
             try:
                 checkpoint_id = int(checkpoint_file.stem)
                 existing_ids.append(checkpoint_id)
@@ -81,13 +86,13 @@ class StorageManager:
         return max(existing_ids) + 1 if existing_ids else 1
 
     # File snapshot operations
-    def save_file_snapshot(self, file_path: Path, content: str) -> str:
-        """Save a file snapshot and return its hash."""
+    def save_file_snapshot(self, content: str) -> str:
+        """Save a file snapshot and return its content hash."""
         content_hash = self._get_file_hash(content)
         snapshot_path = self.files_dir / content_hash
 
         if not snapshot_path.exists():
-            with open(snapshot_path, "w") as f:
+            with open(snapshot_path, "w", encoding="utf-8") as f:
                 f.write(content)
 
         return content_hash
@@ -105,24 +110,24 @@ class StorageManager:
     def export_data(
         self,
         output_path: Path,
-        format: ExportFormat,
+        fmt: ExportFormat,
         checkpoint_system: Any | None = None,
     ) -> None:
         """Export data in the specified format."""
-        if format == ExportFormat.MARKDOWN:
+        if fmt == ExportFormat.MARKDOWN:
             from .checkpoint_system import CheckpointSystem
 
             if checkpoint_system is None:
                 checkpoint_system = CheckpointSystem(self)
             self._export_markdown(output_path, checkpoint_system)
-        elif format == ExportFormat.HTML:
+        elif fmt == ExportFormat.HTML:
             from .checkpoint_system import CheckpointSystem
 
             if checkpoint_system is None:
                 checkpoint_system = CheckpointSystem(self)
             self._export_html(output_path, checkpoint_system)
         else:
-            raise ValueError(f"Unsupported export format: {format}")
+            raise ValueError(f"Unsupported export format: {fmt}")
 
     def _export_markdown(
         self,

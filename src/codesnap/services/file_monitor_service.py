@@ -1,8 +1,13 @@
+from typing import TYPE_CHECKING
+
 from ..config import Config
-from .file_service import FileService
+from .interfaces import FileServiceError, IFileMonitorService, IFileService
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 
-class FileMonitorService:
+class FileMonitorService(IFileMonitorService):
     """
     Monitors file changes in the project directory.
 
@@ -10,7 +15,7 @@ class FileMonitorService:
     and can report which files have been changed since monitoring started.
     """
 
-    def __init__(self, config: Config, file_service: FileService):
+    def __init__(self, config: Config, file_service: IFileService):
         """
         Initialize the file monitor service.
 
@@ -26,17 +31,27 @@ class FileMonitorService:
         self.changed_files: set[str] = set()
 
     def start_monitoring(self) -> None:
-        """Start monitoring file changes in the project directory."""
-        self.is_monitoring = True
-        self.changed_files = set()
+        """Start monitoring file changes in the project directory.
 
-        # Capture initial file states
-        project_files = self.file_service.get_project_files()
-        for file_path in project_files:
-            relative_path = str(file_path.relative_to(self.project_root))
+        Raises:
+            FileServiceError: If monitoring startup fails
+        """
+        try:
+            self.is_monitoring = True
+            self.changed_files = set()
 
-            mod_time = file_path.stat().st_mtime
-            self.initial_file_states[relative_path] = mod_time
+            # Capture initial file states
+            project_files = self.file_service.get_project_files()
+            for file_path in project_files:
+                relative_path = str(file_path.relative_to(self.project_root))
+
+                mod_time = file_path.stat().st_mtime
+                self.initial_file_states[relative_path] = mod_time
+        except Exception as e:
+            raise FileServiceError(
+                f"Failed to start file monitoring: {str(e)}",
+                service_name="FileMonitorService",
+            ) from e
 
     def stop_monitoring(self) -> set[str]:
         """
@@ -44,42 +59,56 @@ class FileMonitorService:
 
         Returns:
             Set of relative file paths that were modified during monitoring
+
+        Raises:
+            FileServiceError: If monitoring stop fails
         """
-        self.is_monitoring = False
+        try:
+            self.is_monitoring = False
 
-        # Check for final changes
-        self._check_for_changes()
+            # Check for final changes
+            self._check_for_changes()
 
-        return self.changed_files.copy()
+            return self.changed_files.copy()
+        except Exception as e:
+            raise FileServiceError(
+                f"Failed to stop file monitoring: {str(e)}",
+                service_name="FileMonitorService",
+            ) from e
 
     def _check_for_changes(self) -> None:
-        """Check for file changes since monitoring started."""
         if not self.is_monitoring:
             return
 
-        project_files = self.file_service.get_project_files()
+        try:
+            project_files = self.file_service.get_project_files()
 
-        # Check for modifications to existing files
-        for file_path in project_files:
-            relative_path = str(file_path.relative_to(self.project_root))
+            # Check for modifications to existing files
+            for file_path in project_files:
+                relative_path = str(file_path.relative_to(self.project_root))
 
-            # Skip files we weren't tracking initially
-            if relative_path not in self.initial_file_states:
-                # This is a new file
-                self.changed_files.add(relative_path)
-                continue
+                # Skip files we weren't tracking initially
+                if relative_path not in self.initial_file_states:
+                    # This is a new file
+                    self.changed_files.add(relative_path)
+                    continue
 
-            current_mod_time = file_path.stat().st_mtime
-            initial_mod_time = self.initial_file_states[relative_path]
+                current_mod_time = file_path.stat().st_mtime
+                initial_mod_time = self.initial_file_states[relative_path]
 
-            if current_mod_time > initial_mod_time:
-                self.changed_files.add(relative_path)
+                if current_mod_time > initial_mod_time:
+                    self.changed_files.add(relative_path)
 
-        # Check for deleted files
-        for relative_path in self.initial_file_states:
-            file_path = self.project_root / relative_path
-            if not file_path.exists():
-                self.changed_files.add(relative_path)
+            # Check for deleted files
+            for relative_path in self.initial_file_states:
+                file_path = self.project_root / relative_path
+                if not file_path.exists():
+                    self.changed_files.add(relative_path)
+        except Exception as e:
+            raise FileServiceError(
+                f"Failed to check for file changes: {str(e)}",
+                service_name="FileMonitorService",
+            ) from e
 
     def get_changed_files(self) -> set[str]:
         """
@@ -87,9 +116,18 @@ class FileMonitorService:
 
         Returns:
             Set of relative file paths that have been modified
+
+        Raises:
+            FileServiceError: If file change retrieval fails
         """
-        self._check_for_changes()
-        return self.changed_files.copy()
+        try:
+            self._check_for_changes()
+            return self.changed_files.copy()
+        except Exception as e:
+            raise FileServiceError(
+                f"Failed to get changed files: {str(e)}",
+                service_name="FileMonitorService",
+            ) from e
 
     def is_file_changed(self, relative_path: str) -> bool:
         """

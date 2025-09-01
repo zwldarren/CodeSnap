@@ -1,17 +1,35 @@
+from typing import TYPE_CHECKING
+
 from ..models import CodeChange
-from ..storage import StorageManager
-from .file_service import FileService
+from .interfaces import (
+    ComparisonError,
+    IComparisonService,
+    IFileService,
+    IStorageManager,
+)
+
+if TYPE_CHECKING:
+    pass
 
 
-class ComparisonService:
-    """Compares checkpoints and generates differences."""
+class ComparisonService(IComparisonService):
+    """Compares checkpoints and generates differences.
+
+    This service handles comparison operations between checkpoints
+    and between checkpoints and the current project state.
+    """
 
     def __init__(
         self,
-        storage: StorageManager,
-        file_system: FileService,
+        storage: IStorageManager,
+        file_system: IFileService,
     ):
-        """Initialize the checkpoint comparator."""
+        """Initialize the checkpoint comparator.
+
+        Args:
+            storage: Storage manager instance for data retrieval
+            file_system: File service instance for file operations
+        """
         self.storage = storage
         self.file_system = file_system
 
@@ -22,19 +40,24 @@ class ComparisonService:
         new_content_hash: str | None,
         use_rich: bool = False,
     ) -> CodeChange | None:
-        """Compare two file versions and return the change if any."""
-        old_content = (
-            self.storage.load_file_snapshot(old_content_hash)
-            if old_content_hash
-            else None
-        )
-        new_content = (
-            self.storage.load_file_snapshot(new_content_hash)
-            if new_content_hash
-            else None
-        )
+        try:
+            old_content = (
+                self.storage.load_file_snapshot(old_content_hash)
+                if old_content_hash
+                else None
+            )
+            new_content = (
+                self.storage.load_file_snapshot(new_content_hash)
+                if new_content_hash
+                else None
+            )
 
-        return self._compare_content(file_path, old_content, new_content, use_rich)
+            return self._compare_content(file_path, old_content, new_content, use_rich)
+        except Exception as e:
+            raise ComparisonError(
+                f"Failed to compare files for '{file_path}': {str(e)}",
+                service_name="ComparisonService",
+            ) from e
 
     def _compare_content(
         self,
@@ -43,58 +66,57 @@ class ComparisonService:
         new_content: str | None,
         use_rich: bool = False,
     ) -> CodeChange | None:
-        """Compare two file contents and return the change if any."""
-        # Always compare actual content, not just hashes
-        if old_content is not None and new_content is not None:
-            # File exists in both versions, compare content
-            if old_content == new_content:
-                return None  # No change
-            else:
-                # File modified
+        try:
+
+            def make_diff(a: str, b: str):
                 diff_func = (
                     self.file_system.generate_diff_rich
                     if use_rich
                     else self.file_system.generate_diff
                 )
-                diff = diff_func(old_content, new_content)
+                return diff_func(a, b)
+
+            # Always compare actual content, not just hashes
+            if old_content is not None and new_content is not None:
+                # File exists in both versions, compare content
+                if old_content == new_content:
+                    return None  # No change
+                else:
+                    # File modified
+                    diff = make_diff(old_content, new_content)
+                    return CodeChange(
+                        file_path=file_path,
+                        change_type="modified",
+                        old_content=old_content,
+                        new_content=new_content,
+                        diff=diff,
+                    )
+            elif old_content is not None and new_content is None:
+                # File deleted
+                diff = make_diff(old_content, "")
                 return CodeChange(
                     file_path=file_path,
-                    change_type="modified",
+                    change_type="deleted",
                     old_content=old_content,
+                    new_content=None,
+                    diff=diff,
+                )
+            elif old_content is None and new_content is not None:
+                # File added
+                diff = make_diff("", new_content)
+                return CodeChange(
+                    file_path=file_path,
+                    change_type="added",
+                    old_content=None,
                     new_content=new_content,
                     diff=diff,
                 )
-        elif old_content is not None and new_content is None:
-            # File deleted
-            diff_func = (
-                self.file_system.generate_diff_rich
-                if use_rich
-                else self.file_system.generate_diff
-            )
-            diff = diff_func(old_content, "")
-            return CodeChange(
-                file_path=file_path,
-                change_type="deleted",
-                old_content=old_content,
-                new_content=None,
-                diff=diff,
-            )
-        elif old_content is None and new_content is not None:
-            # File added
-            diff_func = (
-                self.file_system.generate_diff_rich
-                if use_rich
-                else self.file_system.generate_diff
-            )
-            diff = diff_func("", new_content)
-            return CodeChange(
-                file_path=file_path,
-                change_type="added",
-                old_content=None,
-                new_content=new_content,
-                diff=diff,
-            )
-        return None
+            return None
+        except Exception as e:
+            raise ComparisonError(
+                f"Failed to compare content for '{file_path}': {str(e)}",
+                service_name="ComparisonService",
+            ) from e
 
     def compare_checkpoints(
         self, checkpoint1_id: int, checkpoint2_id: int, use_rich: bool = False

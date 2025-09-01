@@ -1,17 +1,29 @@
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .config import Config
 from .models import Checkpoint, CodeChange, Prompt
 from .services import ServiceFactory
+from .services.interfaces import (
+    CheckpointError,
+)
 from .storage import StorageManager
+
+if TYPE_CHECKING:
+    pass
 
 
 class CheckpointSystem:
-    """Manages code checkpoints with version control functionality."""
+    """Manages code checkpoints with version control functionality.
+
+    This is the main entry point for the CodeSnap system, providing
+    a high-level API for checkpoint operations, comparisons, and restores.
+    """
 
     def __init__(self, storage_manager: StorageManager, config: Config | None = None):
         """
         Initialize the checkpoint system.
+
         Args:
             storage_manager: Storage manager instance
             config: Configuration object (optional, creates default if not provided)
@@ -29,20 +41,58 @@ class CheckpointSystem:
         tags: list[str] | None = None,
         prompt: Prompt | None = None,
     ) -> Checkpoint:
-        """Create a new checkpoint with current project state."""
-        return self.services.checkpoint.create_checkpoint(
-            description=description,
-            tags=tags,
-            prompt=prompt,
-        )
+        """Create a new checkpoint with current project state.
+
+        Args:
+            description: Optional description for the checkpoint
+            tags: Optional list of tags to associate with the checkpoint
+            prompt: Optional prompt object associated with the checkpoint
+
+        Returns:
+            The created checkpoint object
+
+        Raises:
+            CheckpointError: If checkpoint creation fails
+        """
+        try:
+            return self.services.checkpoint.create_checkpoint(
+                description=description,
+                tags=tags,
+                prompt=prompt,
+            )
+        except CheckpointError:
+            raise
+        except Exception as e:
+            raise CheckpointError(
+                f"Failed to create checkpoint: {str(e)}",
+                service_name="CheckpointSystem",
+            ) from e
 
     def create_initial_checkpoint(
         self, description: str = "Initial checkpoint"
     ) -> Checkpoint:
-        """Create an initial checkpoint without a prompt."""
-        return self.services.checkpoint.create_initial_checkpoint(
-            description=description
-        )
+        """Create an initial checkpoint without a prompt.
+
+        Args:
+            description: Description for the initial checkpoint
+
+        Returns:
+            The created initial checkpoint object
+
+        Raises:
+            CheckpointError: If initial checkpoint creation fails
+        """
+        try:
+            return self.services.checkpoint.create_initial_checkpoint(
+                description=description
+            )
+        except CheckpointError:
+            raise
+        except Exception as e:
+            raise CheckpointError(
+                f"Failed to create initial checkpoint: {str(e)}",
+                service_name="CheckpointSystem",
+            ) from e
 
     def restore_checkpoint(
         self, checkpoint_id: int, restore_path: Path | None = None

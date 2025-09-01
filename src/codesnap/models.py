@@ -1,13 +1,14 @@
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+if TYPE_CHECKING:
+    pass
+
 
 class Prompt(BaseModel):
-    """Model for storing user prompts with metadata."""
-
     content: str
     timestamp: datetime = Field(default_factory=datetime.now)
     tags: list[str] = Field(default_factory=list)
@@ -18,8 +19,6 @@ class Prompt(BaseModel):
 
 
 class Checkpoint(BaseModel):
-    """Model for storing code checkpoints."""
-
     id: int
     description: str = ""
     timestamp: datetime = Field(default_factory=datetime.now)
@@ -32,7 +31,12 @@ class Checkpoint(BaseModel):
 
     @property
     def name(self) -> str:
-        """Use prompt content as name."""
+        """Get a display name for the checkpoint.
+
+        Returns:
+            Prompt content truncated to 50 characters if available,
+            otherwise "Checkpoint {id}" format
+        """
         if self.prompt and self.prompt.content:
             return self.prompt.content[:50] + (
                 "..." if len(self.prompt.content) > 50 else ""
@@ -44,8 +48,6 @@ class Checkpoint(BaseModel):
 
 
 class CodeChange(BaseModel):
-    """Model for storing code changes between checkpoints."""
-
     file_path: str
     change_type: str  # "added", "modified", "deleted"
     old_content: str | None = None
@@ -54,7 +56,5 @@ class CodeChange(BaseModel):
 
 
 class ExportFormat(str, Enum):
-    """Supported export formats."""
-
     MARKDOWN = "markdown"
     HTML = "html"
