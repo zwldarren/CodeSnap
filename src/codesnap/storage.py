@@ -1,6 +1,5 @@
 import hashlib
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -110,9 +109,7 @@ class StorageManager:
         checkpoint_system: Any | None = None,
     ) -> None:
         """Export data in the specified format."""
-        if format == ExportFormat.JSON:
-            self._export_json(output_path)
-        elif format == ExportFormat.MARKDOWN:
+        if format == ExportFormat.MARKDOWN:
             from .checkpoint_system import CheckpointSystem
 
             if checkpoint_system is None:
@@ -127,17 +124,6 @@ class StorageManager:
         else:
             raise ValueError(f"Unsupported export format: {format}")
 
-    def _export_json(self, output_path: Path) -> None:
-        """Export data as JSON."""
-        checkpoints = self.list_checkpoints()
-
-        export_data = {
-            "checkpoints": [c.model_dump() for c in checkpoints],
-            "export_timestamp": datetime.now().isoformat(),
-        }
-
-        self._save_json(output_path, export_data)
-
     def _export_markdown(
         self,
         output_path: Path,
@@ -147,9 +133,25 @@ class StorageManager:
 
         with open(output_path, "w", encoding="utf-8") as f:
             f.write("# CodeSnap Export\n\n")
-            f.write(f"Exported on: {datetime.now().isoformat()}\n\n")
+            f.write("## Table of Contents\n\n")
 
             checkpoints = self.list_checkpoints()
+
+            # Generate table of contents
+            for i, checkpoint in enumerate(checkpoints, 1):
+                if checkpoint.restored_from:
+                    f.write(
+                        f"{i}. [Restore: {checkpoint.name}](#restore-{checkpoint.name.lower().replace(' ', '-')})\n"  # noqa: E501
+                    )
+                elif checkpoint.prompt:
+                    f.write(
+                        f"{i}. [Checkpoint {checkpoint.id}](#checkpoint-{checkpoint.id})\n"  # noqa: E501
+                    )
+                else:
+                    f.write(
+                        f"{i}. [Initial: {checkpoint.name}](#initial-{checkpoint.name.lower().replace(' ', '-')})\n"  # noqa: E501
+                    )
+            f.write("\n---\n\n")
 
             # Process checkpoints
             prev_checkpoint_id = None
@@ -158,55 +160,13 @@ class StorageManager:
                 if checkpoint.prompt:
                     prompt = checkpoint.prompt
                     f.write(
-                        f"## Prompt: {prompt.content[:50]}"
-                        f"{'...' if len(prompt.content) > 50 else ''}\n\n"
+                        f"## Checkpoint {checkpoint.id} {{#checkpoint-{checkpoint.id}}}\n\n"  # noqa: E501
                     )
+                    if prompt.content:
+                        f.write(f"**Prompt:**\n```\n{prompt.content}\n```\n")
 
                     if prompt.tags:
                         f.write(f"**Tags:** {', '.join(prompt.tags)}\n\n")
-
-                    # Show file summary at the beginning of each checkpoint
-                    if (
-                        prev_checkpoint_id
-                        and checkpoint_system
-                        and not checkpoint.restored_from
-                    ):
-                        changes = checkpoint_system.compare_checkpoints(
-                            prev_checkpoint_id, checkpoint.id
-                        )
-                        if changes:
-                            f.write("### Changed Files\n\n")
-                            added_files = [
-                                c.file_path for c in changes if c.change_type == "added"
-                            ]
-                            modified_files = [
-                                c.file_path
-                                for c in changes
-                                if c.change_type == "modified"
-                            ]
-                            deleted_files = [
-                                c.file_path
-                                for c in changes
-                                if c.change_type == "deleted"
-                            ]
-
-                            if added_files:
-                                f.write("**Added:**\n")
-                                for file_path in added_files:
-                                    f.write(f"- `{file_path}`\n")
-                                f.write("\n")
-
-                            if modified_files:
-                                f.write("**Modified:**\n")
-                                for file_path in modified_files:
-                                    f.write(f"- `{file_path}`\n")
-                                f.write("\n")
-
-                            if deleted_files:
-                                f.write("**Deleted:**\n")
-                                for file_path in deleted_files:
-                                    f.write(f"- `{file_path}`\n")
-                                f.write("\n")
 
                     # If there was a previous checkpoint, show diff
                     if (
@@ -232,7 +192,9 @@ class StorageManager:
                 # Write checkpoint info
                 # Handle restore checkpoints
                 if checkpoint.restored_from:
-                    f.write(f"## Restore Operation: {checkpoint.name}\n\n")
+                    f.write(
+                        f"## Restore Operation: {checkpoint.name} {{#restore-{checkpoint.name.lower().replace(' ', '-')}}}\n\n"  # noqa: E501
+                    )
 
                     f.write(f"**Description:** {checkpoint.description}\n\n")
                     f.write(f"**Restored from:** {checkpoint.restored_from}\n\n")
@@ -245,7 +207,9 @@ class StorageManager:
                     f.write("---\n\n")
                 elif not checkpoint.prompt:
                     # Initial checkpoint
-                    f.write(f"## Initial Checkpoint: {checkpoint.name}\n\n")
+                    f.write(
+                        f"## Initial Checkpoint: {checkpoint.name} {{#initial-{checkpoint.name.lower().replace(' ', '-')}}}\n\n"  # noqa: E501
+                    )
 
                     f.write(f"**Description:** {checkpoint.description}\n\n")
                     if checkpoint.tags:
@@ -260,7 +224,7 @@ class StorageManager:
         output_path: Path,
         checkpoint_system: Any | None = None,
     ) -> None:
-        """Export data as HTML, showing diffs between checkpoints in chronological order."""  # noqa: E501
+        """Export data as HTML, showing diffs between checkpoints chronologically."""  # noqa: E501
 
         def escape_html(text: str) -> str:
             return (
@@ -310,21 +274,38 @@ class StorageManager:
                     margin-bottom: 2em; border-bottom: 1px solid #ddd;
                     padding-bottom: 1em;
                 }
-                .file-summary-section {
-                    margin-left: 1em;
-                    margin-bottom: 1em;
-                    padding: 1em;
-                    background: #f9f9f9;
-                    border-radius: 5px;
-                }
+                hr { border: 0; border-top: 1px solid #ddd; margin: 2em 0; }
                 .diff-section { margin-left: 1em; }
             </style>"""
             )
             f.write("</head><body>")
             f.write("<h1>CodeSnap Export</h1>")
-            f.write(f"<p>Exported on: {datetime.now().isoformat()}</p>")
+            f.write("<h2>Table of Contents</h2>")
 
             checkpoints = self.list_checkpoints()
+
+            # Generate table of contents
+            f.write("<ol>")
+            for checkpoint in checkpoints:
+                if checkpoint.restored_from:
+                    f.write(
+                        f'<li><a href="#restore-'
+                        f'{checkpoint.name.lower().replace(" ", "-")}">'
+                        f"Restore: {escape_html(checkpoint.name)}</a></li>"
+                    )
+                elif checkpoint.prompt:
+                    f.write(
+                        f'<li><a href="#checkpoint-{checkpoint.id}">'
+                        f"Checkpoint {checkpoint.id}</a></li>"
+                    )
+                else:
+                    f.write(
+                        f'<li><a href="#initial-'
+                        f'{checkpoint.name.lower().replace(" ", "-")}">'
+                        f"Initial: {escape_html(checkpoint.name)}</a></li>"
+                    )
+            f.write("</ol>")
+            f.write("<hr>")
 
             # Process checkpoints
             prev_checkpoint_id = None
@@ -332,69 +313,21 @@ class StorageManager:
                 # Write prompt if it exists
                 if checkpoint.prompt:
                     prompt = checkpoint.prompt
-                    prompt_title = prompt.content[:50] + (
-                        "..." if len(prompt.content) > 50 else ""
+                    f.write(
+                        f'<h2 id="checkpoint-{checkpoint.id}">'
+                        f"Checkpoint {checkpoint.id}</h2>"
                     )
-                    f.write('<div class="prompt-section">')
-                    f.write(f"<h2>Prompt: {escape_html(prompt_title)}</h2>")
+                    if prompt.content:
+                        f.write("<p><strong>Prompt:</strong></p>")
+                        f.write(
+                            f"<pre><code>{escape_html(prompt.content)}</code></pre>"
+                        )
 
-                    f.write(f"<p><strong>Timestamp:</strong> {prompt.timestamp}</p>")
-                    f.write("<p><strong>Content:</strong></p>")
-                    f.write(f"<pre><code>{escape_html(prompt.content)}</code></pre>")
                     if prompt.tags:
                         f.write(
                             f"<p><strong>Tags:</strong> "
                             f"{escape_html(', '.join(prompt.tags))}</p>"
                         )
-
-                    # Show file summary at the beginning of each checkpoint
-                    if (
-                        prev_checkpoint_id
-                        and checkpoint_system
-                        and not checkpoint.restored_from
-                    ):
-                        changes = checkpoint_system.compare_checkpoints(
-                            prev_checkpoint_id, checkpoint.id
-                        )
-                        if changes:
-                            f.write('<div class="file-summary-section">')
-                            f.write("<h3>Changed Files</h3>")
-
-                            added_files = [
-                                c for c in changes if c.change_type == "added"
-                            ]
-                            modified_files = [
-                                c for c in changes if c.change_type == "modified"
-                            ]
-                            deleted_files = [
-                                c for c in changes if c.change_type == "deleted"
-                            ]
-
-                            if added_files:
-                                f.write("<p><strong>Added:</strong></p><ul>")
-                                for change in added_files:
-                                    f.write(
-                                        f"<li><code>{escape_html(change.file_path)}</code></li>"
-                                    )
-                                f.write("</ul>")
-
-                            if modified_files:
-                                f.write("<p><strong>Modified:</strong></p><ul>")
-                                for change in modified_files:
-                                    f.write(
-                                        f"<li><code>{escape_html(change.file_path)}</code></li>"
-                                    )
-                                f.write("</ul>")
-
-                            if deleted_files:
-                                f.write("<p><strong>Deleted:</strong></p><ul>")
-                                for change in deleted_files:
-                                    f.write(
-                                        f"<li><code>{escape_html(change.file_path)}</code></li>"
-                                    )
-                                f.write("</ul>")
-
-                            f.write("</div>")
 
                     # If there was a previous checkpoint, show diff
                     if (
@@ -402,7 +335,6 @@ class StorageManager:
                         and checkpoint_system
                         and not checkpoint.restored_from
                     ):
-                        f.write('<div class="diff-section">')
                         f.write("<h3>Changes from previous checkpoint</h3>")
                         changes = checkpoint_system.compare_checkpoints(
                             prev_checkpoint_id, checkpoint.id
@@ -418,21 +350,15 @@ class StorageManager:
                                     f.write(f"<pre>{diff_to_html(change.diff)}</pre>")
                         else:
                             f.write("<p>No changes detected.</p>")
-                        f.write("</div>")
-
-                    f.write("</div>")
 
                 # Write checkpoint info
                 # Handle restore checkpoints
                 if checkpoint.restored_from:
-                    f.write('<div class="checkpoint-section">')
                     f.write(
-                        f"<h2>Restore Operation: {escape_html(checkpoint.name)}</h2>"
+                        f'<h2 id="restore-{checkpoint.name.lower().replace(" ", "-")}">'
+                        f"Restore Operation: {escape_html(checkpoint.name)}</h2>"
                     )
-                    f.write(f"<p><strong>ID:</strong> {checkpoint.id}</p>")
-                    f.write(
-                        f"<p><strong>Timestamp:</strong> {checkpoint.timestamp}</p>"
-                    )
+
                     f.write(
                         f"<p><strong>Description:</strong> "
                         f"{escape_html(checkpoint.description)}</p>"
@@ -452,17 +378,13 @@ class StorageManager:
                             f"{escape_html(', '.join(checkpoint.tags))}</p>"
                         )
                     f.write("<hr>")
-                    f.write("</div>")
                 elif not checkpoint.prompt:
                     # Initial checkpoint
-                    f.write('<div class="checkpoint-section">')
                     f.write(
-                        f"<h2>Initial Checkpoint: {escape_html(checkpoint.name)}</h2>"
+                        f'<h2 id="initial-{checkpoint.name.lower().replace(" ", "-")}">'
+                        f"Initial Checkpoint: {escape_html(checkpoint.name)}</h2>"
                     )
-                    f.write(f"<p><strong>ID:</strong> {checkpoint.id}</p>")
-                    f.write(
-                        f"<p><strong>Timestamp:</strong> {checkpoint.timestamp}</p>"
-                    )
+
                     f.write(
                         f"<p><strong>Description:</strong> "
                         f"{escape_html(checkpoint.description)}</p>"
@@ -472,8 +394,6 @@ class StorageManager:
                             f"<p><strong>Tags:</strong> "
                             f"{escape_html(', '.join(checkpoint.tags))}</p>"
                         )
-
-                    f.write("</div>")
 
                 # Only update previous checkpoint if this is not a restore checkpoint
                 if not checkpoint.restored_from:

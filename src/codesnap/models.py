@@ -56,6 +56,5 @@ class CodeChange(BaseModel):
 class ExportFormat(str, Enum):
     """Supported export formats."""
 
-    JSON = "json"
     MARKDOWN = "markdown"
     HTML = "html"

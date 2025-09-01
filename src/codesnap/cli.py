@@ -3,10 +3,14 @@ from pathlib import Path
 import click
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.prompt import Prompt as RichPrompt
 from rich.table import Table
+from rich.theme import Theme
 
 from .checkpoint_system import CheckpointSystem
-from .models import ExportFormat, Prompt
+from .models import ExportFormat
+from .models import Prompt as PromptModel
 from .storage import StorageManager
 
 
@@ -59,7 +63,19 @@ def _resolve_checkpoint_id(storage: StorageManager, checkpoint_ref: str) -> int 
     return None
 
 
-console = Console()
+# Custom theme for better UI
+custom_theme = Theme(
+    {
+        "info": "cyan",
+        "warning": "yellow",
+        "error": "red",
+        "success": "green",
+        "highlight": "magenta",
+        "muted": "dim white",
+    }
+)
+
+console = Console(theme=custom_theme)
 
 
 @click.group()
@@ -79,87 +95,117 @@ def start(tags: list[str], description: str):
     storage = StorageManager()
     checkpoint_system = CheckpointSystem(storage)
 
-    console.print("[bold green]CodeSnap Interactive Mode[/bold green]")
+    console.print("[bold highlight]🚀 CodeSnap Interactive Mode[/bold highlight]")
+    console.print(
+        "[muted]Record your AI coding journey with prompts and checkpoints[/muted]\n"
+    )
 
     # Check if there are existing checkpoints
     existing_checkpoints = storage.list_checkpoints()
     if not existing_checkpoints:
-        console.print("No existing checkpoints found. Creating initial checkpoint...")
-        # Create first checkpoint immediately when starting (only for new projects)
-        initial_checkpoint = checkpoint_system.create_initial_checkpoint(
-            description="Initial checkpoint before any changes"
-        )
         console.print(
-            f"[green]Initial checkpoint created: {format_id(initial_checkpoint.id)}[/green]"  # noqa: E501
+            "[info]No existing checkpoints found. Creating initial checkpoint...[/info]"
+        )
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            transient=True,
+        ) as progress:
+            progress.add_task(description="Creating initial checkpoint...", total=None)
+            # Create first checkpoint immediately when starting (only for new projects)
+            initial_checkpoint = checkpoint_system.create_initial_checkpoint(
+                description="Initial checkpoint before any changes"
+            )
+        console.print(
+            f"[success]✓ Initial checkpoint created: {format_id(initial_checkpoint.id)}[/success]"  # noqa: E501
         )
     else:
-        console.print(f"Found {len(existing_checkpoints)} existing checkpoint(s).")
+        console.print(
+            f"[info]Found {len(existing_checkpoints)} existing checkpoint(s).[/info]"
+        )
 
-    console.print("Enter prompts and press Enter to create checkpoints.")
-    console.print("Press Ctrl+C or type 'exit' to quit.\n")
+    console.print("\n[bold]How to use:[/bold]")
+    console.print("1. Enter your AI prompt")
+    console.print("2. Make your code changes")
+    console.print("3. Press Enter to create checkpoint")
+    console.print("4. Type 'exit', 'quit', or 'q' to finish\n")
 
     while True:
         try:
-            # Get prompt from user
-            prompt_text = click.prompt("Enter prompt")
+            # Get prompt from user with rich prompt
+            prompt_text = RichPrompt.ask(
+                "[highlight]💡 Enter your AI prompt[/highlight]"
+            )
 
             if prompt_text.lower() in ["exit", "quit", "q"]:
-                console.print("[yellow]Exiting interactive mode...[/yellow]")
+                console.print("[warning]👋 Exiting interactive mode...[/warning]")
                 break
 
             if not prompt_text.strip():
-                console.print("[yellow]Prompt cannot be empty. Try again.[/yellow]")
+                console.print(
+                    "[warning]⚠️  Prompt cannot be empty. Try again.[/warning]"
+                )
                 continue
 
             # Create prompt object
-            prompt_obj = Prompt(
+            prompt_obj = PromptModel(
                 content=prompt_text,
                 tags=list(tags),
             )
 
-            console.print(f"Prompt: {prompt_text}")
+            console.print(f"[info]📝 Prompt recorded: {prompt_text}[/info]")
             console.print(
-                "[blue]Make your code changes, then press Enter to create checkpoint...[/blue]"  # noqa: E501
+                "[info]🛠️  Make your code changes, then press Enter to create checkpoint...[/info]"  # noqa: E501
             )
 
             # Wait for user to press Enter after making changes
             input()
 
-            # Create second checkpoint AFTER user has made changes
-            checkpoint = checkpoint_system.create_checkpoint(
-                description=description or "",
-                tags=list(tags),
-                prompt=prompt_obj,
-            )
+            # Create checkpoint with progress indicator
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                transient=True,
+            ) as progress:
+                progress.add_task(description="Creating checkpoint...", total=None)
+                checkpoint = checkpoint_system.create_checkpoint(
+                    description=description or "",
+                    tags=list(tags),
+                    prompt=prompt_obj,
+                )
 
             console.print(
-                f"[green]Checkpoint created: {format_id(checkpoint.id)}[/green]"
+                f"[success]✓ Checkpoint created: {format_id(checkpoint.id)}[/success]"
             )
+            console.print("[muted]─── Ready for next prompt ───[/muted]\n")
 
         except KeyboardInterrupt:
-            console.print("\n[yellow]Exiting interactive mode...[/yellow]")
+            console.print("\n[warning]👋 Exiting interactive mode...[/warning]")
             break
         except Exception as e:
-            console.print(f"[red]Error: {str(e)}[/red]")
+            console.print(f"[error]❌ Error: {str(e)}[/error]")
             continue
-
-
-# Prompts command removed - prompts are now embedded in checkpoints
 
 
 @main.command()
 def list_cmd():
     """List checkpoints."""
     storage = StorageManager()
-    # Show checkpoints list
-    checkpoints_list = storage.list_checkpoints()
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        transient=True,
+    ) as progress:
+        progress.add_task(description="Loading checkpoints...", total=None)
+        checkpoints_list = storage.list_checkpoints()
 
     if not checkpoints_list:
-        console.print("[yellow]No checkpoints found.[/yellow]")
+        console.print("[warning]📭 No checkpoints found.[/warning]")
         return
 
-    table = Table(title="Checkpoints")
-    table.add_column("ID", style="cyan")
+    table = Table(title="📋 Checkpoints", show_header=True, header_style="bold magenta")
+    table.add_column("ID", style="cyan", justify="right")
     table.add_column("Name", style="magenta")
     table.add_column("Description", style="green")
     table.add_column("Timestamp", style="blue")
@@ -167,21 +213,22 @@ def list_cmd():
 
     for checkpoint in checkpoints_list:
         description = (
-            checkpoint.description[:50] + "..."
-            if len(checkpoint.description) > 50
+            checkpoint.description[:40] + "..."
+            if len(checkpoint.description) > 40
             else checkpoint.description
         )
-        tags = ", ".join(checkpoint.tags) if checkpoint.tags else ""
+        tags = ", ".join(checkpoint.tags) if checkpoint.tags else "-"
 
         table.add_row(
             format_id(checkpoint.id),
             checkpoint.name,
             description,
-            checkpoint.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            checkpoint.timestamp.strftime("%m/%d %H:%M"),
             tags,
         )
 
     console.print(table)
+    console.print(f"[info]📊 Total: {len(checkpoints_list)} checkpoint(s)[/info]")
 
 
 @main.command()
@@ -198,7 +245,9 @@ def diff(checkpoint1_id: str | None, checkpoint2_id: str | None, current: bool):
     if current:
         # Compare checkpoint with current state
         if not checkpoint1_id:
-            console.print("[red]Checkpoint ID is required when using --current[/red]")
+            console.print(
+                "[error]❌ Checkpoint ID is required when using --current[/error]"
+            )
             return
 
         # Resolve checkpoint name to ID if necessary
@@ -206,25 +255,32 @@ def diff(checkpoint1_id: str | None, checkpoint2_id: str | None, current: bool):
         if not resolved_id:
             return
 
-        changes = checkpoint_system.compare_with_current(resolved_id)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            transient=True,
+        ) as progress:
+            progress.add_task(description="Comparing with current state...", total=None)
+            changes = checkpoint_system.compare_with_current(resolved_id)
 
         if not changes:
             console.print(
-                "[yellow]No differences found between checkpoint and current state.[/yellow]"  # noqa: E501
+                "[info]✅ No differences found between checkpoint and current state.[/info]"  # noqa: E501
             )
             return
 
         console.print(
-            f"[bold]Comparing checkpoint "
-            f"{format_id(checkpoint1_id, short=False)} with current state[/bold]"
+            f"[bold highlight]🔍 Comparing checkpoint "
+            f"{format_id(checkpoint1_id, short=False)} with current state[/bold highlight]"  # noqa: E501
         )
-        console.print(f"Found {len(changes)} changed files:\n")
+        console.print(f"[info]📄 Found {len(changes)} changed file(s):[/info]\n")
 
-        for change in changes:
+        for i, change in enumerate(changes, 1):
             console.print(
                 Panel(
                     f"[bold]{change.file_path}[/bold] ({change.change_type})",
-                    title="File",
+                    title=f"File {i}/{len(changes)}",
+                    border_style="highlight" if i == 1 else "info",
                 )
             )
 
@@ -234,7 +290,9 @@ def diff(checkpoint1_id: str | None, checkpoint2_id: str | None, current: bool):
     else:
         # Compare two checkpoints
         if not checkpoint1_id or not checkpoint2_id:
-            console.print("[red]Two checkpoint IDs are required for comparison[/red]")
+            console.print(
+                "[error]❌ Two checkpoint IDs are required for comparison[/error]"
+            )
             return
 
         # Resolve checkpoint names to IDs if necessary
@@ -244,24 +302,31 @@ def diff(checkpoint1_id: str | None, checkpoint2_id: str | None, current: bool):
         if not resolved_id1 or not resolved_id2:
             return
 
-        changes = checkpoint_system.compare_checkpoints(resolved_id1, resolved_id2)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            transient=True,
+        ) as progress:
+            progress.add_task(description="Comparing checkpoints...", total=None)
+            changes = checkpoint_system.compare_checkpoints(resolved_id1, resolved_id2)
 
         if not changes:
-            console.print("[yellow]No differences found between checkpoints.[/yellow]")
+            console.print("[info]✅ No differences found between checkpoints.[/info]")
             return
 
         console.print(
-            f"[bold]Comparing checkpoints "
+            f"[bold highlight]🔍 Comparing checkpoints "
             f"{format_id(checkpoint1_id, short=False)} and "
-            f"{format_id(checkpoint2_id, short=False)}[/bold]"
+            f"{format_id(checkpoint2_id, short=False)}[/bold highlight]"
         )
-        console.print(f"Found {len(changes)} changed files:\n")
+        console.print(f"[info]📄 Found {len(changes)} changed file(s):[/info]\n")
 
-        for change in changes:
+        for i, change in enumerate(changes, 1):
             console.print(
                 Panel(
                     f"[bold]{change.file_path}[/bold] ({change.change_type})",
-                    title="File",
+                    title=f"File {i}/{len(changes)}",
+                    border_style="highlight" if i == 1 else "info",
                 )
             )
 
