@@ -216,3 +216,15 @@ __marimo__/
 .streamlit/secrets.toml
 
 .codesnap
+
+
+# START Ruler Generated Files
+/.kilocode/rules/ruler_kilocode_instructions.md
+/.kilocode/rules/ruler_kilocode_instructions.md.bak
+/AGENTS.md
+/AGENTS.md.bak
+/CLAUDE.md
+/CLAUDE.md.bak
+/opencode.json
+/opencode.json.bak
+# END Ruler Generated Files

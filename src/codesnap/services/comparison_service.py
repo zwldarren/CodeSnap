@@ -1,26 +1,23 @@
 import logging
 
-from .diff import DiffGenerator
-from .fs import FileSystemManager
-from .models import CodeChange
-from .storage import StorageManager
+from ..models import CodeChange
+from ..storage import StorageManager
+from .file_service import FileService
 
 logger = logging.getLogger(__name__)
 
 
-class CheckpointComparator:
+class ComparisonService:
     """Compares checkpoints and generates differences."""
 
     def __init__(
         self,
         storage: StorageManager,
-        file_system: FileSystemManager,
-        diff_generator: DiffGenerator,
+        file_system: FileService,
     ):
         """Initialize the checkpoint comparator."""
         self.storage = storage
         self.file_system = file_system
-        self.diff_generator = diff_generator
 
     def _compare_files(
         self,
@@ -59,9 +56,9 @@ class CheckpointComparator:
             else:
                 # File modified
                 diff_func = (
-                    self.diff_generator.generate_diff_rich
+                    self.file_system.generate_diff_rich
                     if use_rich
-                    else self.diff_generator.generate_diff
+                    else self.file_system.generate_diff
                 )
                 diff = diff_func(old_content, new_content)
                 return CodeChange(
@@ -74,9 +71,9 @@ class CheckpointComparator:
         elif old_content is not None and new_content is None:
             # File deleted
             diff_func = (
-                self.diff_generator.generate_diff_rich
+                self.file_system.generate_diff_rich
                 if use_rich
-                else self.diff_generator.generate_diff
+                else self.file_system.generate_diff
             )
             diff = diff_func(old_content, "")
             return CodeChange(
@@ -89,9 +86,9 @@ class CheckpointComparator:
         elif old_content is None and new_content is not None:
             # File added
             diff_func = (
-                self.diff_generator.generate_diff_rich
+                self.file_system.generate_diff_rich
                 if use_rich
-                else self.diff_generator.generate_diff
+                else self.file_system.generate_diff
             )
             diff = diff_func("", new_content)
             return CodeChange(
@@ -104,14 +101,14 @@ class CheckpointComparator:
         return None
 
     def compare_checkpoints(
-        self, checkpoint1_id: str, checkpoint2_id: str, use_rich: bool = False
+        self, checkpoint1_id: int, checkpoint2_id: int, use_rich: bool = False
     ) -> list[CodeChange]:
         """Compare two checkpoints and return the differences."""
         logger.info(f"Comparing checkpoints {checkpoint1_id} and {checkpoint2_id}")
 
         try:
-            checkpoint1 = self.storage.load_checkpoint(checkpoint1_id)
-            checkpoint2 = self.storage.load_checkpoint(checkpoint2_id)
+            checkpoint1 = self.storage.load_checkpoint(int(checkpoint1_id))
+            checkpoint2 = self.storage.load_checkpoint(int(checkpoint2_id))
 
             if not checkpoint1:
                 logger.warning(f"Checkpoint {checkpoint1_id} not found")
@@ -149,13 +146,13 @@ class CheckpointComparator:
             return []
 
     def compare_with_current(
-        self, checkpoint_id: str, use_rich: bool = False
+        self, checkpoint_id: int, use_rich: bool = False
     ) -> list[CodeChange]:
         """Compare a checkpoint with the current project state."""
         logger.info(f"Comparing checkpoint {checkpoint_id} with current state")
 
         try:
-            checkpoint = self.storage.load_checkpoint(checkpoint_id)
+            checkpoint = self.storage.load_checkpoint(int(checkpoint_id))
             if not checkpoint:
                 logger.warning(f"Checkpoint {checkpoint_id} not found")
                 return []

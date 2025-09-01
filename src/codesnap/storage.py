@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .models import Branch, Checkpoint, ExportFormat
+from .models import Checkpoint, ExportFormat
 
 
 class StorageManager:
@@ -22,12 +22,10 @@ class StorageManager:
         # Create directories for different data types
         self.checkpoints_dir = self.base_path / "checkpoints"
         self.files_dir = self.base_path / "files"
-        self.branches_dir = self.base_path / "branches"
 
         for directory in [
             self.checkpoints_dir,
             self.files_dir,
-            self.branches_dir,
         ]:
             directory.mkdir(exist_ok=True)
 
@@ -53,7 +51,7 @@ class StorageManager:
         checkpoint_path = self.checkpoints_dir / f"{checkpoint.id}.json"
         self._save_json(checkpoint_path, checkpoint.model_dump())
 
-    def load_checkpoint(self, checkpoint_id: str) -> Checkpoint | None:
+    def load_checkpoint(self, checkpoint_id: int) -> Checkpoint | None:
         """Load a checkpoint from storage."""
         checkpoint_path = self.checkpoints_dir / f"{checkpoint_id}.json"
         if not checkpoint_path.exists():
@@ -62,15 +60,26 @@ class StorageManager:
         data = self._load_json(checkpoint_path)
         return Checkpoint(**data)
 
-    def list_checkpoints(self, status: str | None = None) -> list[Checkpoint]:
-        """List all checkpoints, optionally filtered by status."""
+    def list_checkpoints(self) -> list[Checkpoint]:
+        """List all checkpoints."""
         checkpoints = []
         for checkpoint_file in self.checkpoints_dir.glob("*.json"):
             data = self._load_json(checkpoint_file)
             checkpoint = Checkpoint(**data)
-            if status is None or checkpoint.status == status:
-                checkpoints.append(checkpoint)
+            checkpoints.append(checkpoint)
         return sorted(checkpoints, key=lambda c: c.timestamp)
+
+    def get_next_checkpoint_id(self) -> int:
+        """Get the next available checkpoint ID."""
+        existing_ids = []
+        for checkpoint_file in self.checkpoints_dir.glob("*.json"):
+            try:
+                checkpoint_id = int(checkpoint_file.stem)
+                existing_ids.append(checkpoint_id)
+            except ValueError:
+                continue
+
+        return max(existing_ids) + 1 if existing_ids else 1
 
     # File snapshot operations
     def save_file_snapshot(self, file_path: Path, content: str) -> str:
@@ -92,104 +101,6 @@ class StorageManager:
 
         with open(snapshot_path) as f:
             return f.read()
-
-    # Branch operations
-    def save_branch(self, branch: Branch) -> None:
-        """Save a branch to storage."""
-        branch_path = self.branches_dir / f"{branch.id}.json"
-        self._save_json(branch_path, branch.model_dump())
-
-    def load_branch(self, branch_id: str) -> Branch | None:
-        """Load a branch from storage."""
-        branch_path = self.branches_dir / f"{branch_id}.json"
-        if not branch_path.exists():
-            return None
-
-        data = self._load_json(branch_path)
-        return Branch(**data)
-
-    def list_branches(self, status: str | None = None) -> list[Branch]:
-        """List all branches, optionally filtered by status."""
-        branches = []
-        for branch_file in self.branches_dir.glob("*.json"):
-            data = self._load_json(branch_file)
-            branch = Branch(**data)
-            if status is None or branch.status == status:
-                branches.append(branch)
-        return sorted(branches, key=lambda b: b.created_at)
-
-    def get_or_create_default_branch(self) -> Branch | None:
-        """Get the default branch or create one if it doesn't exist."""
-        branches = self.list_branches("active")
-        if branches:
-            return branches[-1]  # Return the most recent active branch
-
-        # Create a default branch
-        from .models import Branch
-
-        default_branch = Branch(
-            name="default",
-            description="Default branch for checkpoint management",
-        )
-        self.save_branch(default_branch)
-        return default_branch
-
-    def create_new_branch(
-        self,
-        name: str,
-        description: str = "",
-        created_from: str | None = None,
-    ) -> Branch:
-        """Create a new branch."""
-        from .models import Branch
-
-        branch = Branch(
-            name=name,
-            description=description,
-            created_from=created_from,
-        )
-        self.save_branch(branch)
-        return branch
-
-    def get_branch_by_name(self, name: str) -> Branch | None:
-        """Get a branch by its name."""
-        branches = self.list_branches()
-        for branch in branches:
-            if branch.name == name:
-                return branch
-        return None
-
-    def get_checkpoints_by_branch(self, branch_id: str | None) -> list[Checkpoint]:
-        """Get all checkpoints for a specific branch."""
-        checkpoints = self.list_checkpoints()
-        return [cp for cp in checkpoints if cp.branch_id == branch_id]
-
-    def get_active_branch(self) -> Branch | None:
-        """Get the currently active branch."""
-        active_branch_file = self.base_path / "active_branch"
-        if not active_branch_file.exists():
-            return None
-
-        try:
-            with open(active_branch_file) as f:
-                branch_id = f.read().strip()
-            return self.load_branch(branch_id)
-        except Exception:
-            return None
-
-    def set_active_branch(self, branch_id: str) -> bool:
-        """Set the active branch."""
-        branch = self.load_branch(branch_id)
-        if not branch:
-            return False
-
-        active_branch_file = self.base_path / "active_branch"
-        try:
-            with open(active_branch_file, "w") as f:
-                f.write(branch_id)
-            return True
-        except Exception:
-            return False
 
     # Export operations
     def export_data(
@@ -218,14 +129,9 @@ class StorageManager:
 
     def _export_json(self, output_path: Path) -> None:
         """Export data as JSON."""
-        current_branch = self.get_or_create_default_branch()
-        if current_branch:
-            checkpoints = self.get_checkpoints_by_branch(current_branch.id)
-        else:
-            checkpoints = []
+        checkpoints = self.list_checkpoints()
 
         export_data = {
-            "current_branch": current_branch.model_dump() if current_branch else None,
             "checkpoints": [c.model_dump() for c in checkpoints],
             "export_timestamp": datetime.now().isoformat(),
         }
@@ -243,16 +149,7 @@ class StorageManager:
             f.write("# CodeSnap Export\n\n")
             f.write(f"Exported on: {datetime.now().isoformat()}\n\n")
 
-            # Get current branch and its checkpoints only
-            current_branch = self.get_or_create_default_branch()
-            if current_branch:
-                f.write(f"**Current Branch:** {current_branch.name}\n\n")
-                checkpoints = sorted(
-                    self.get_checkpoints_by_branch(current_branch.id),
-                    key=lambda c: c.timestamp,
-                )
-            else:
-                checkpoints = []
+            checkpoints = self.list_checkpoints()
 
             # Process checkpoints
             prev_checkpoint_id = None
@@ -264,11 +161,52 @@ class StorageManager:
                         f"## Prompt: {prompt.content[:50]}"
                         f"{'...' if len(prompt.content) > 50 else ''}\n\n"
                     )
-                    f.write(f"**Type:** {prompt.prompt_type}\n\n")
-                    f.write(f"**Timestamp:** {prompt.timestamp}\n\n")
-                    f.write(f"**Content:**\n\n```\n{prompt.content}\n```\n\n")
+
                     if prompt.tags:
                         f.write(f"**Tags:** {', '.join(prompt.tags)}\n\n")
+
+                    # Show file summary at the beginning of each checkpoint
+                    if (
+                        prev_checkpoint_id
+                        and checkpoint_system
+                        and not checkpoint.restored_from
+                    ):
+                        changes = checkpoint_system.compare_checkpoints(
+                            prev_checkpoint_id, checkpoint.id
+                        )
+                        if changes:
+                            f.write("### Changed Files\n\n")
+                            added_files = [
+                                c.file_path for c in changes if c.change_type == "added"
+                            ]
+                            modified_files = [
+                                c.file_path
+                                for c in changes
+                                if c.change_type == "modified"
+                            ]
+                            deleted_files = [
+                                c.file_path
+                                for c in changes
+                                if c.change_type == "deleted"
+                            ]
+
+                            if added_files:
+                                f.write("**Added:**\n")
+                                for file_path in added_files:
+                                    f.write(f"- `{file_path}`\n")
+                                f.write("\n")
+
+                            if modified_files:
+                                f.write("**Modified:**\n")
+                                for file_path in modified_files:
+                                    f.write(f"- `{file_path}`\n")
+                                f.write("\n")
+
+                            if deleted_files:
+                                f.write("**Deleted:**\n")
+                                for file_path in deleted_files:
+                                    f.write(f"- `{file_path}`\n")
+                                f.write("\n")
 
                     # If there was a previous checkpoint, show diff
                     if (
@@ -295,8 +233,7 @@ class StorageManager:
                 # Handle restore checkpoints
                 if checkpoint.restored_from:
                     f.write(f"## Restore Operation: {checkpoint.name}\n\n")
-                    f.write(f"**ID:** {checkpoint.id}\n\n")
-                    f.write(f"**Timestamp:** {checkpoint.timestamp}\n\n")
+
                     f.write(f"**Description:** {checkpoint.description}\n\n")
                     f.write(f"**Restored from:** {checkpoint.restored_from}\n\n")
                     if checkpoint.restore_timestamp:
@@ -309,16 +246,10 @@ class StorageManager:
                 elif not checkpoint.prompt:
                     # Initial checkpoint
                     f.write(f"## Initial Checkpoint: {checkpoint.name}\n\n")
-                    f.write(f"**ID:** {checkpoint.id}\n\n")
-                    f.write(f"**Timestamp:** {checkpoint.timestamp}\n\n")
+
                     f.write(f"**Description:** {checkpoint.description}\n\n")
                     if checkpoint.tags:
                         f.write(f"**Tags:** {', '.join(checkpoint.tags)}\n\n")
-
-                    f.write("### Files in Initial Checkpoint\n\n")
-                    for file_path in checkpoint.file_snapshots:
-                        f.write(f"- `{file_path}`\n")
-                    f.write("\n")
 
                 # Only update previous checkpoint if this is not a restore checkpoint
                 if not checkpoint.restored_from:
@@ -379,6 +310,13 @@ class StorageManager:
                     margin-bottom: 2em; border-bottom: 1px solid #ddd;
                     padding-bottom: 1em;
                 }
+                .file-summary-section {
+                    margin-left: 1em;
+                    margin-bottom: 1em;
+                    padding: 1em;
+                    background: #f9f9f9;
+                    border-radius: 5px;
+                }
                 .diff-section { margin-left: 1em; }
             </style>"""
             )
@@ -386,19 +324,7 @@ class StorageManager:
             f.write("<h1>CodeSnap Export</h1>")
             f.write(f"<p>Exported on: {datetime.now().isoformat()}</p>")
 
-            # Get current branch and its checkpoints only
-            current_branch = self.get_or_create_default_branch()
-            if current_branch:
-                f.write(
-                    f"<p><strong>Current Branch:</strong> "
-                    f"{escape_html(current_branch.name)}</p>"
-                )
-                checkpoints = sorted(
-                    self.get_checkpoints_by_branch(current_branch.id),
-                    key=lambda c: c.timestamp,
-                )
-            else:
-                checkpoints = []
+            checkpoints = self.list_checkpoints()
 
             # Process checkpoints
             prev_checkpoint_id = None
@@ -411,7 +337,7 @@ class StorageManager:
                     )
                     f.write('<div class="prompt-section">')
                     f.write(f"<h2>Prompt: {escape_html(prompt_title)}</h2>")
-                    f.write(f"<p><strong>Type:</strong> {prompt.prompt_type}</p>")
+
                     f.write(f"<p><strong>Timestamp:</strong> {prompt.timestamp}</p>")
                     f.write("<p><strong>Content:</strong></p>")
                     f.write(f"<pre><code>{escape_html(prompt.content)}</code></pre>")
@@ -420,6 +346,55 @@ class StorageManager:
                             f"<p><strong>Tags:</strong> "
                             f"{escape_html(', '.join(prompt.tags))}</p>"
                         )
+
+                    # Show file summary at the beginning of each checkpoint
+                    if (
+                        prev_checkpoint_id
+                        and checkpoint_system
+                        and not checkpoint.restored_from
+                    ):
+                        changes = checkpoint_system.compare_checkpoints(
+                            prev_checkpoint_id, checkpoint.id
+                        )
+                        if changes:
+                            f.write('<div class="file-summary-section">')
+                            f.write("<h3>Changed Files</h3>")
+
+                            added_files = [
+                                c for c in changes if c.change_type == "added"
+                            ]
+                            modified_files = [
+                                c for c in changes if c.change_type == "modified"
+                            ]
+                            deleted_files = [
+                                c for c in changes if c.change_type == "deleted"
+                            ]
+
+                            if added_files:
+                                f.write("<p><strong>Added:</strong></p><ul>")
+                                for change in added_files:
+                                    f.write(
+                                        f"<li><code>{escape_html(change.file_path)}</code></li>"
+                                    )
+                                f.write("</ul>")
+
+                            if modified_files:
+                                f.write("<p><strong>Modified:</strong></p><ul>")
+                                for change in modified_files:
+                                    f.write(
+                                        f"<li><code>{escape_html(change.file_path)}</code></li>"
+                                    )
+                                f.write("</ul>")
+
+                            if deleted_files:
+                                f.write("<p><strong>Deleted:</strong></p><ul>")
+                                for change in deleted_files:
+                                    f.write(
+                                        f"<li><code>{escape_html(change.file_path)}</code></li>"
+                                    )
+                                f.write("</ul>")
+
+                            f.write("</div>")
 
                     # If there was a previous checkpoint, show diff
                     if (
@@ -498,10 +473,6 @@ class StorageManager:
                             f"{escape_html(', '.join(checkpoint.tags))}</p>"
                         )
 
-                    f.write("<h3>Files in Initial Checkpoint</h3><ul>")
-                    for file_path in checkpoint.file_snapshots:
-                        f.write(f"<li><code>{escape_html(file_path)}</code></li>")
-                    f.write("</ul>")
                     f.write("</div>")
 
                 # Only update previous checkpoint if this is not a restore checkpoint
