@@ -126,10 +126,12 @@ class ComparisonService(IComparisonService):
             checkpoint1 = self.storage.load_checkpoint(int(checkpoint1_id))
             checkpoint2 = self.storage.load_checkpoint(int(checkpoint2_id))
 
-            if not checkpoint1:
-                return []
-            if not checkpoint2:
-                return []
+            if not checkpoint1 or not checkpoint2:
+                raise ComparisonError(
+                    f"One or both checkpoints not found: {checkpoint1_id}, "
+                    f"{checkpoint2_id}",
+                    service_name="ComparisonService",
+                )
 
             changes = []
             all_files = set(checkpoint1.file_snapshots.keys()) | set(
@@ -146,46 +148,65 @@ class ComparisonService(IComparisonService):
 
             return changes
 
-        except Exception:
-            return []
+        except Exception as e:
+            if isinstance(e, ComparisonError):
+                raise
+            raise ComparisonError(
+                f"Failed to compare checkpoints {checkpoint1_id} and {checkpoint2_id}: "
+                f"{str(e)}",
+                service_name="ComparisonService",
+            ) from e
 
     def compare_with_current(
         self, checkpoint_id: int, use_rich: bool = False
     ) -> list[CodeChange]:
         """Compare a checkpoint with the current project state."""
+        try:
+            checkpoint = self.storage.load_checkpoint(int(checkpoint_id))
+            if not checkpoint:
+                raise ComparisonError(
+                    f"Checkpoint not found: {checkpoint_id}",
+                    service_name="ComparisonService",
+                )
 
-        checkpoint = self.storage.load_checkpoint(int(checkpoint_id))
-        if not checkpoint:
-            return []
-
-        changes = []
-        current_files = {
-            str(f.relative_to(self.file_system.project_root)): f
-            for f in self.file_system.get_project_files()
-        }
-        all_files = set(checkpoint.file_snapshots.keys()) | set(current_files.keys())
-
-        for file_path in all_files:
-            checkpoint_hash = checkpoint.file_snapshots.get(file_path)
-            current_file = current_files.get(file_path)
-
-            # Load checkpoint content from storage
-            checkpoint_content = (
-                self.storage.load_file_snapshot(checkpoint_hash)
-                if checkpoint_hash
-                else None
-            )
-            # Load current content from filesystem
-            current_content = (
-                self.file_system.read_file_content(current_file)
-                if current_file
-                else None
+            changes = []
+            current_files = {
+                str(f.relative_to(self.file_system.project_root)): f
+                for f in self.file_system.get_project_files()
+            }
+            all_files = set(checkpoint.file_snapshots.keys()) | set(
+                current_files.keys()
             )
 
-            change = self._compare_content(
-                file_path, checkpoint_content, current_content, use_rich
-            )
-            if change:
-                changes.append(change)
+            for file_path in all_files:
+                checkpoint_hash = checkpoint.file_snapshots.get(file_path)
+                current_file = current_files.get(file_path)
 
-        return changes
+                # Load checkpoint content from storage
+                checkpoint_content = (
+                    self.storage.load_file_snapshot(checkpoint_hash)
+                    if checkpoint_hash
+                    else None
+                )
+                # Load current content from filesystem
+                current_content = (
+                    self.file_system.read_file_content(current_file)
+                    if current_file
+                    else None
+                )
+
+                change = self._compare_content(
+                    file_path, checkpoint_content, current_content, use_rich
+                )
+                if change:
+                    changes.append(change)
+
+            return changes
+
+        except Exception as e:
+            if isinstance(e, ComparisonError):
+                raise
+            raise ComparisonError(
+                f"Failed to compare checkpoint {checkpoint_id} with current: {str(e)}",
+                service_name="ComparisonService",
+            ) from e

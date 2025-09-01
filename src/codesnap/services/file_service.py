@@ -72,6 +72,18 @@ class FileService(IFileService):
         if any(part in self.ignore_patterns for part in path.parts):
             return True
 
+        # Check filename against wildcard patterns
+        filename = path.name
+        for pattern in self.ignore_patterns:
+            if (
+                pattern.startswith("*.")
+                and filename.endswith(pattern[1:])
+                or pattern.endswith("*")
+                and filename.startswith(pattern[:-1])
+                or pattern == filename
+            ):
+                return True
+
         # Check against .gitignore patterns using pathspec
         if self.pathspec:
             try:
